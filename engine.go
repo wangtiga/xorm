@@ -1561,6 +1561,9 @@ func (engine *Engine) formatColTime(col *core.Column, t time.Time) (v interface{
 
 // formatTime format time as column type
 func (engine *Engine) formatTime(sqlTypeName string, t time.Time) (v interface{}) {
+	if engine.dialect.DBType() == core.ORACLE_12_1 {
+		return t // FIXME Oracle 报错 "ORA-01861: 文字与格式字符串不匹配\n" 这里直接使用 time.Time 类型就不报错
+	}
 	switch sqlTypeName {
 	case core.Time:
 		s := t.Format("2006-01-02 15:04:05") //time.RFC3339

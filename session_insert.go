@@ -205,7 +205,8 @@ func (session *Session) innerInsertMulti(rowsSlicePtr interface{}) (int64, error
 	cleanupProcessorsClosures(&session.beforeClosures)
 
 	var sql string
-	if session.engine.dialect.DBType() == core.ORACLE {
+	switch session.engine.dialect.DBType() {
+	case core.ORACLE, core.ORACLE_12_1:
 		temp := fmt.Sprintf(") INTO %s (%v%v%v) VALUES (",
 			session.engine.Quote(tableName),
 			session.engine.QuoteStr(),
@@ -217,7 +218,7 @@ func (session *Session) innerInsertMulti(rowsSlicePtr interface{}) (int64, error
 			strings.Join(colNames, session.engine.QuoteStr()+", "+session.engine.QuoteStr()),
 			session.engine.QuoteStr(),
 			strings.Join(colMultiPlaces, temp))
-	} else {
+	default:
 		sql = fmt.Sprintf("INSERT INTO %s (%v%v%v) VALUES (%v)",
 			session.engine.Quote(tableName),
 			session.engine.QuoteStr(),
@@ -423,6 +424,48 @@ func (session *Session) innerInsert(bean interface{}) (int64, error) {
 		aiValue.Set(int64ToIntValue(id, aiValue.Type()))
 
 		return 1, nil
+	} else if session.engine.dialect.DBType() == core.ORACLE_12_1 && len(table.AutoIncrement) > 0 {
+		res, err := session.exec(sqlStr, args...)
+		if err != nil {
+			return 0, err
+		}
+
+		defer handleAfterInsertProcessorFunc(bean)
+
+		session.cacheInsert(tableName)
+
+		if table.Version != "" && session.statement.checkVersion {
+			verValue, err := table.VersionColumn().ValueOf(bean)
+			if err != nil {
+				session.engine.logger.Error(err)
+			} else if verValue.IsValid() && verValue.CanSet() {
+				session.incrVersionFieldValue(verValue)
+			}
+		}
+
+		if table.AutoIncrement == "" {
+			return res.RowsAffected()
+		}
+
+		var id int64
+		id, err = res.LastInsertId()
+		if err != nil || id <= 0 {
+			return res.RowsAffected()
+		}
+		// fmt.Println("test by ws", id)
+
+		aiValue, err := table.AutoIncrColumn().ValueOf(bean)
+		if err != nil {
+			session.engine.logger.Error(err)
+		}
+
+		if aiValue == nil || !aiValue.IsValid() || !aiValue.CanSet() {
+			return res.RowsAffected()
+		}
+
+		aiValue.Set(int64ToIntValue(id, aiValue.Type()))
+
+		return res.RowsAffected()
 	} else if session.engine.dialect.DBType() == core.POSTGRES && len(table.AutoIncrement) > 0 {
 		//assert table.AutoIncrement != ""
 		sqlStr = sqlStr + " RETURNING " + session.engine.Quote(table.AutoIncrement)

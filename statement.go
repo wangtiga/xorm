@@ -1054,6 +1054,8 @@ func (statement *Statement) genSelectSQL(columnStr, condSQL string, needLimit, n
 	if statement.TableAlias != "" {
 		if dialect.DBType() == core.ORACLE {
 			fromStr += " " + quote(statement.TableAlias)
+		} else if dialect.DBType() == core.ORACLE_12_1 {
+			fromStr += " " + quote(statement.TableAlias)
 		} else {
 			fromStr += " AS " + quote(statement.TableAlias)
 		}
@@ -1123,18 +1125,25 @@ func (statement *Statement) genSelectSQL(columnStr, condSQL string, needLimit, n
 		fmt.Fprint(&buf, " ORDER BY ", statement.OrderStr)
 	}
 	if needLimit {
-		if dialect.DBType() != core.MSSQL && dialect.DBType() != core.ORACLE {
-			if statement.Start > 0 {
-				fmt.Fprintf(&buf, " LIMIT %v OFFSET %v", statement.LimitN, statement.Start)
-			} else if statement.LimitN > 0 {
-				fmt.Fprint(&buf, " LIMIT ", statement.LimitN)
-			}
-		} else if dialect.DBType() == core.ORACLE {
+		if dialect.DBType() == core.ORACLE {
 			if statement.Start != 0 || statement.LimitN != 0 {
 				oldString := buf.String()
 				buf.Reset()
 				fmt.Fprintf(&buf, "SELECT %v FROM (SELECT %v,ROWNUM RN FROM (%v) at WHERE ROWNUM <= %d) aat WHERE RN > %d",
 					columnStr, columnStr, oldString, statement.Start+statement.LimitN, statement.Start)
+			}
+		} else if dialect.DBType() == core.ORACLE_12_1 {
+			if statement.Start != 0 || statement.LimitN != 0 {
+				oldString := buf.String()
+				buf.Reset()
+				fmt.Fprintf(&buf, "SELECT %v FROM (SELECT %v,ROWNUM RN FROM (%v) at WHERE ROWNUM <= %d) aat WHERE RN > %d",
+					columnStr, columnStr, oldString, statement.Start+statement.LimitN, statement.Start)
+			}
+		} else if dialect.DBType() != core.MSSQL {
+			if statement.Start > 0 {
+				fmt.Fprintf(&buf, " LIMIT %v OFFSET %v", statement.LimitN, statement.Start)
+			} else if statement.LimitN > 0 {
+				fmt.Fprint(&buf, " LIMIT ", statement.LimitN)
 			}
 		}
 	}
